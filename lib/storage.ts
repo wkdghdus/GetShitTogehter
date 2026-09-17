@@ -1,16 +1,23 @@
 import { createDailyEntry, createInitialAppState, createWeekReview } from "./defaults";
 import { getLocalDate, getWeekStart } from "./dates";
+import { arrangeDailyEntry } from "./timeline";
 import type {
+  AppSettings,
   AppState,
+  CompletionState,
   CurriculumDayProgress,
   CurriculumProblemProgress,
   CurriculumTrackProgress,
   CurriculumUserProblem,
   DailyEntry,
+  EnergyMode,
   LeetcodeCurriculumProgress,
   ProblemAttempt,
   ProblemRating,
   SystemDesignCurriculumProgress,
+  TimelineItem,
+  TimelineMode,
+  TimelinePreset,
 } from "./types";
 
 export const APP_STATE_STORAGE_KEY = "personal-routine-dashboard:v1";
@@ -37,6 +44,35 @@ function recordsHave(value: unknown, requiredStrings: string[], requiredArrays: 
   );
 }
 
+function isTimelineMode(value: unknown): value is TimelineMode {
+  return value === "adaptive" || value === "normal" || value === "late-wake";
+}
+
+function isEnergyMode(value: unknown): value is EnergyMode {
+  return value === "normal" || value === "low";
+}
+
+function isCompletionState(value: unknown): value is CompletionState {
+  return value === "pending" || value === "completed" || value === "skipped";
+}
+
+function isTimeline(value: unknown): value is TimelineItem[] {
+  return Array.isArray(value) && value.every((item) =>
+    isRecord(item) &&
+    typeof item.id === "string" &&
+    typeof item.start === "string" &&
+    typeof item.title === "string" &&
+    typeof item.kind === "string",
+  );
+}
+
+function isTimelinePreset(value: unknown): value is TimelinePreset {
+  return isRecord(value) &&
+    (value.id === "normal" || value.id === "late-wake") &&
+    typeof value.name === "string" &&
+    isTimeline(value.blocks);
+}
+
 function isAppState(value: unknown): value is AppState {
   if (!isRecord(value)) return false;
 
@@ -44,9 +80,15 @@ function isAppState(value: unknown): value is AppState {
   const dailyEntries = value.dailyEntries;
   const weeklyReviews = value.weeklyReviews;
 
-  if (!isRecord(settings) || !isRecord(settings.weeklyRoutine) || !Array.isArray(settings.timelineTemplate)) {
+  if (!isRecord(settings) || !isRecord(settings.weeklyRoutine)) {
     return false;
   }
+
+  const presets = settings.timelinePresets;
+  const timelineSettingsAreValid =
+    isTimeline(settings.timelineTemplate) ||
+    (isRecord(presets) && isTimelinePreset(presets.normal) && isTimelinePreset(presets["late-wake"]));
+  if (!timelineSettingsAreValid) return false;
 
   const routineIsValid = Object.values(settings.weeklyRoutine).every((day) =>
     isRecord(day) &&
@@ -210,24 +252,73 @@ function mergeLeetcodeCurriculum(
 
 function mergeWithDefaults(value: AppState): AppState {
   const defaults = createInitialAppState();
+  const { timelineTemplate: legacyTimeline, ...storedSettings } = value.settings;
+  const storedPresets: Record<string, unknown> = isRecord(value.settings.timelinePresets)
+    ? value.settings.timelinePresets
+    : {};
+  const normalPreset = isTimelinePreset(storedPresets.normal) ? storedPresets.normal : undefined;
+  const lateWakePreset = isTimelinePreset(storedPresets["late-wake"])
+    ? storedPresets["late-wake"]
+    : undefined;
+  const settings: AppSettings = {
+    ...defaults.settings,
+    ...storedSettings,
+    defaultTimelineMode: isTimelineMode(value.settings.defaultTimelineMode)
+      ? value.settings.defaultTimelineMode
+      : defaults.settings.defaultTimelineMode,
+    weeklyRoutine: {
+      ...defaults.settings.weeklyRoutine,
+      ...value.settings.weeklyRoutine,
+    },
+    timelinePresets: {
+      normal: {
+        ...defaults.settings.timelinePresets.normal,
+        ...normalPreset,
+        id: "normal",
+        blocks: normalPreset?.blocks ?? (isTimeline(legacyTimeline)
+          ? legacyTimeline
+          : defaults.settings.timelinePresets.normal.blocks),
+      },
+      "late-wake": {
+        ...defaults.settings.timelinePresets["late-wake"],
+        ...lateWakePreset,
+        id: "late-wake",
+        blocks: lateWakePreset?.blocks ?? defaults.settings.timelinePresets["late-wake"].blocks,
+      },
+    },
+  };
+  const dailyEntries = Object.fromEntries(
+    Object.entries(value.dailyEntries).map(([date, entry]) => {
+      const { lowEnergyMode, ...storedEntry } = entry as DailyEntry & { lowEnergyMode?: boolean };
+      const timelineMode = isTimelineMode(entry.timelineMode) ? entry.timelineMode : settings.defaultTimelineMode;
+      const energyMode = isEnergyMode(entry.energyMode) ? entry.energyMode : lowEnergyMode ? "low" : "normal";
+      const migratedEntry = {
+        ...storedEntry,
+        timelineMode,
+        energyMode,
+        physicalStatus: isCompletionState(entry.physicalStatus)
+          ? entry.physicalStatus
+          : entry.physicalCompleted ? "completed" : "pending",
+        workStatus: isCompletionState(entry.workStatus)
+          ? entry.workStatus
+          : entry.workCompleted ? "completed" : "pending",
+        focusStatus: isCompletionState(entry.focusStatus)
+          ? entry.focusStatus
+          : entry.focusCompleted ? "completed" : "pending",
+        decompressionStatus: isCompletionState(entry.decompressionStatus)
+          ? entry.decompressionStatus
+          : "pending",
+      } satisfies DailyEntry;
+
+      return [date, arrangeDailyEntry(migratedEntry, timelineMode, energyMode, settings)];
+    }),
+  );
 
   return {
     ...defaults,
     ...value,
-    settings: {
-      ...defaults.settings,
-      ...value.settings,
-      weeklyRoutine: {
-        ...defaults.settings.weeklyRoutine,
-        ...value.settings.weeklyRoutine,
-      },
-      timelineTemplate: Array.isArray(value.settings.timelineTemplate)
-        ? value.settings.timelineTemplate
-        : defaults.settings.timelineTemplate,
-    },
-    dailyEntries: {
-      ...value.dailyEntries,
-    },
+    settings,
+    dailyEntries,
     weeklyReviews: {
       ...value.weeklyReviews,
     },
@@ -268,6 +359,16 @@ export function hydrateAppState(date = getLocalDate()): AppState {
   let state = getAppState();
   state = ensureDailyEntry(state, date);
   state = ensureWeekReview(state, date);
+  const today = state.dailyEntries[date];
+  if (today.timelineMode === "adaptive") {
+    state = {
+      ...state,
+      dailyEntries: {
+        ...state.dailyEntries,
+        [date]: arrangeDailyEntry(today, today.timelineMode, today.energyMode, state.settings, new Date()),
+      },
+    };
+  }
   saveAppState(state);
   return state;
 }
