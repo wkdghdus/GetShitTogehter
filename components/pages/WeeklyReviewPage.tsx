@@ -23,7 +23,9 @@ export function WeeklyReviewPage() {
   });
   const inWeek = (date?: string) => Boolean(date && date >= weekStart && date <= weekEnd);
   const stats = [
-    ["Physical sessions", Object.values(state.dailyEntries).filter((entry) => inWeek(entry.date) && entry.physicalCompleted).length],
+    ["Physical sessions", Object.values(state.dailyEntries).filter(
+      (entry) => inWeek(entry.date) && entry.physicalStatus === "completed",
+    ).length],
     ["Focus sessions", state.focusSessions.filter((entry) => inWeek(entry.date)).length],
     ["Applications submitted", state.applications.filter((entry) => inWeek(entry.dateApplied) && entry.status !== "saved").length],
     ["Project milestones", state.projects.filter((entry) => inWeek(entry.completedAt?.slice(0, 10))).length],
