@@ -11,6 +11,7 @@ import {
   getRightNow,
   getTimelineStatusLabel,
   setActivityState,
+  setBlockTime,
   updateFocusContent,
 } from "@/lib/timeline";
 import type { DailyEntry, EnergyMode, MentalLoadArea, TimelineMode } from "@/lib/types";
@@ -163,6 +164,9 @@ export function TodayPage() {
   const [shutdownDone, setShutdownDone] = useState("");
   const [tomorrowPriority, setTomorrowPriority] = useState("");
   const [selectedHistoryDate, setSelectedHistoryDate] = useState(todayDate);
+  const [editingBlockId, setEditingBlockId] = useState<string | null>(null);
+  const [editStart, setEditStart] = useState("");
+  const [editEnd, setEditEnd] = useState("");
 
   useEffect(() => {
     if (!today) return;
@@ -222,6 +226,22 @@ export function TodayPage() {
       ...entry,
       timeline: entry.timeline.map((item) => (item.id === id ? { ...item, locked: !item.locked } : item)),
     }));
+  };
+
+  const startEditingBlockTime = (id: string, start: string, end?: string) => {
+    setEditingBlockId(id);
+    setEditStart(start);
+    setEditEnd(end ?? "");
+  };
+
+  const cancelEditingBlockTime = () => {
+    setEditingBlockId(null);
+  };
+
+  const saveBlockTime = (id: string, start: string, end: string) => {
+    if (!start) return;
+    updateToday((entry) => setBlockTime(entry, id, start, end || undefined));
+    setEditingBlockId(null);
   };
 
   const saveFocus = () => {
@@ -579,14 +599,51 @@ export function TodayPage() {
         <Card>
           <ol className="space-y-4">
             {today.timeline.filter((item) => item.id !== "adaptive-status").map((item) => (
-              <li key={item.id} className="grid gap-3 border-b border-[color:var(--border)] pb-4 last:border-0 last:pb-0 sm:grid-cols-[8rem_minmax(0,1fr)_auto]">
-                <p className="font-mono text-sm font-bold text-[color:var(--muted)]">{timeRange(item.start, item.end)}</p>
+              <li
+                key={item.id}
+                className={cn(
+                  "grid gap-3 border-b border-[color:var(--border)] pb-4 last:border-0 last:pb-0",
+                  editingBlockId === item.id ? "sm:grid-cols-1" : "sm:grid-cols-[8rem_minmax(0,1fr)_auto]",
+                )}
+              >
+                {editingBlockId === item.id ? (
+                  <div className="flex flex-wrap gap-2">
+                    <Input
+                      type="time"
+                      value={editStart}
+                      onChange={(event) => setEditStart(event.target.value)}
+                      aria-label={`Start time for ${item.title}`}
+                    />
+                    <Input
+                      type="time"
+                      value={editEnd}
+                      onChange={(event) => setEditEnd(event.target.value)}
+                      aria-label={`End time for ${item.title}`}
+                    />
+                  </div>
+                ) : (
+                  <p className="font-mono text-sm font-bold text-[color:var(--muted)]">{timeRange(item.start, item.end)}</p>
+                )}
                 <div>
                   <h3 className="font-bold text-[color:var(--text)]">{item.title}</h3>
                   {item.description ? <p className="text-sm text-[color:var(--muted)]">{item.description}</p> : null}
                 </div>
                 <div className="flex items-center gap-2">
                   <TimelineKindBadge kind={item.kind} />
+                  {editingBlockId === item.id ? (
+                    <>
+                      <Button variant="ghost" onClick={() => saveBlockTime(item.id, editStart, editEnd)} disabled={!editStart}>
+                        Save
+                      </Button>
+                      <Button variant="ghost" onClick={cancelEditingBlockTime}>
+                        Cancel
+                      </Button>
+                    </>
+                  ) : (
+                    <Button variant="ghost" onClick={() => startEditingBlockTime(item.id, item.start, item.end)}>
+                      Edit time
+                    </Button>
+                  )}
                   <Button variant="ghost" onClick={() => toggleTimelineLock(item.id)}>
                     {item.locked ? "Locked" : "Lock"}
                   </Button>

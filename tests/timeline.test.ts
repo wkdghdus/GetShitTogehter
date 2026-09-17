@@ -8,6 +8,7 @@ import {
   getPendingCoreActivities,
   getTimelineStatusLabel,
   setActivityState,
+  setBlockTime,
   updateFocusContent,
 } from "../lib/timeline";
 import type { DailyEntry } from "../lib/types";
@@ -226,6 +227,135 @@ describe("in-place activity edits (no clock-following)", () => {
     assert.equal(block(after, "focus")?.description, "Ship the export flow.");
     assert.equal(block(after, "focus")?.start, block(before, "focus")?.start);
     assert.deepEqual(otherBlocksAfter, otherBlocksBefore);
+  });
+});
+
+describe("manual block time editing", () => {
+  it("setBlockTime updates only the target block's start/end and marks it generated:false, leaving every other block untouched", () => {
+    const before = arrangeDailyEntry(tuesdayEntry(), "normal", "normal", DEFAULT_SETTINGS, at("08:00"));
+    const otherBlocksBefore = before.timeline.filter((item) => item.id !== "dinner");
+
+    const after = setBlockTime(before, "dinner", "19:15", "19:45");
+    const otherBlocksAfter = after.timeline.filter((item) => item.id !== "dinner");
+
+    assert.equal(block(after, "dinner")?.start, "19:15");
+    assert.equal(block(after, "dinner")?.end, "19:45");
+    assert.equal(block(after, "dinner")?.generated, false);
+    assert.deepEqual(otherBlocksAfter, otherBlocksBefore);
+  });
+
+  it("setBlockTime allows an open-ended block (no end) and does not touch locked/state/title/description", () => {
+    const entry = tuesdayEntry();
+    const locked = {
+      ...entry,
+      timeline: entry.timeline.map((item) => (item.id === "sleep" ? { ...item, locked: true, state: "pending" as const } : item)),
+    };
+
+    const after = setBlockTime(locked, "sleep", "23:45");
+
+    assert.equal(block(after, "sleep")?.start, "23:45");
+    assert.equal(block(after, "sleep")?.end, undefined);
+    assert.equal(block(after, "sleep")?.locked, true);
+    assert.equal(block(after, "sleep")?.state, "pending");
+    assert.equal(block(after, "sleep")?.title, block(locked, "sleep")?.title);
+  });
+
+  it("manualTimeline (Normal/Late Wake) prefers a persisted edit over the current Settings preset, while untouched blocks keep tracking the preset", () => {
+    const original = arrangeDailyEntry(tuesdayEntry(), "normal", "normal", DEFAULT_SETTINGS, at("08:00"));
+    const edited = setBlockTime(original, "dinner", "19:00", "19:20");
+
+    const changedSettings = {
+      ...DEFAULT_SETTINGS,
+      timelinePresets: {
+        ...DEFAULT_SETTINGS.timelinePresets,
+        normal: {
+          ...DEFAULT_SETTINGS.timelinePresets.normal,
+          blocks: DEFAULT_SETTINGS.timelinePresets.normal.blocks.map((item) =>
+            item.id === "free-life" ? { ...item, start: "20:30", end: "22:30" } : item,
+          ),
+        },
+      },
+    };
+
+    const regenerated = generateDailyTimeline({
+      dailyEntry: edited,
+      settings: changedSettings,
+      timelineMode: "normal",
+      energyMode: "normal",
+    });
+
+    const dinnerBlock = regenerated.find((item) => item.id === "dinner");
+    const freeLifeBlock = regenerated.find((item) => item.id === "free-life");
+
+    assert.equal(dinnerBlock?.start, "19:00");
+    assert.equal(dinnerBlock?.end, "19:20");
+    assert.equal(dinnerBlock?.generated, false);
+    assert.equal(freeLifeBlock?.start, "20:30");
+    assert.equal(freeLifeBlock?.end, "22:30");
+  });
+
+  it("Adaptive mode: an edited non-physical/non-focus block (e.g. dinner) survives a later Adapt Plan click", () => {
+    const before = arrangeDailyEntry(tuesdayEntry(), "adaptive", "normal", DEFAULT_SETTINGS, at("09:00"));
+    const edited = setBlockTime(before, "dinner", "17:00", "17:30");
+
+    const after = arrangeDailyEntry(edited, "adaptive", "normal", DEFAULT_SETTINGS, at("09:30"));
+
+    assert.equal(block(after, "dinner")?.start, "17:00");
+    assert.equal(block(after, "dinner")?.end, "17:30");
+    assert.equal(block(after, "dinner")?.generated, false);
+  });
+
+  it("Adaptive mode: an edited physical block is allowed to move again on a later Adapt Plan click (accepted trade-off, not a bug)", () => {
+    const before = arrangeDailyEntry(tuesdayEntry(), "adaptive", "normal", DEFAULT_SETTINGS, at("09:00"));
+    const edited = setBlockTime(before, "physical", "03:00", "03:15");
+
+    const after = arrangeDailyEntry(edited, "adaptive", "normal", DEFAULT_SETTINGS, at("09:30"));
+
+    assert.notEqual(block(after, "physical"), undefined);
+    assert.notEqual(block(after, "physical")?.start, "03:00");
+  });
+
+  it("Adaptive mode: editing a block then clicking Adapt Plan never produces two blocks with the same id (regression: preserved edit + freshly generated block sharing an id)", () => {
+    const before = arrangeDailyEntry(tuesdayEntry(), "adaptive", "normal", DEFAULT_SETTINGS, at("09:00"));
+    const edited = setBlockTime(before, "dinner", "17:00", "17:30");
+
+    const after = arrangeDailyEntry(edited, "adaptive", "normal", DEFAULT_SETTINGS, at("09:30"));
+
+    const idCounts = after.timeline.reduce<Record<string, number>>((counts, item) => {
+      counts[item.id] = (counts[item.id] ?? 0) + 1;
+      return counts;
+    }, {});
+    const duplicates = Object.entries(idCounts).filter(([, count]) => count > 1);
+
+    assert.deepEqual(duplicates, []);
+  });
+
+  it("editing the physical block syncs entry.physicalStart/physicalEnd (read by the Body card and doneMarker), and editing focus syncs entry.focusStart/focusEnd", () => {
+    const before = arrangeDailyEntry(tuesdayEntry(), "adaptive", "normal", DEFAULT_SETTINGS, at("09:00"));
+
+    const physicalEdited = setBlockTime(before, "physical", "14:00", "15:30");
+    assert.equal(physicalEdited.physicalStart, "14:00");
+    assert.equal(physicalEdited.physicalEnd, "15:30");
+    assert.equal(block(physicalEdited, "physical")?.start, "14:00");
+
+    const focusEdited = setBlockTime(before, "focus", "16:00", "17:00");
+    assert.equal(focusEdited.focusStart, "16:00");
+    assert.equal(focusEdited.focusEnd, "17:00");
+    assert.equal(block(focusEdited, "focus")?.start, "16:00");
+  });
+
+  it("locking and editing a block's time remain fully independent actions", () => {
+    const entry = arrangeDailyEntry(tuesdayEntry(), "normal", "normal", DEFAULT_SETTINGS, at("08:00"));
+
+    const editedOnly = setBlockTime(entry, "dinner", "19:15", "19:45");
+    assert.equal(block(editedOnly, "dinner")?.locked, undefined);
+
+    const lockedEdited = {
+      ...editedOnly,
+      timeline: editedOnly.timeline.map((item) => (item.id === "dinner" ? { ...item, locked: true } : item)),
+    };
+    const editedAgain = setBlockTime(lockedEdited, "dinner", "19:30", "20:00");
+    assert.equal(block(editedAgain, "dinner")?.locked, true);
   });
 });
 

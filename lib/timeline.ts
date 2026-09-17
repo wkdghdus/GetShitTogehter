@@ -144,6 +144,10 @@ function block(
 }
 
 function pushGenerated(blocks: TimelineItem[], item: TimelineItem, latestEnd: number): number {
+  if (blocks.some((existing) => existing.id === item.id)) {
+    return parseTime(item.start);
+  }
+
   let candidate = item;
   let guard = 0;
 
@@ -207,7 +211,11 @@ function manualTimeline(
   energyMode: EnergyMode,
 ): TimelineItem[] {
   return settings.timelinePresets[mode].blocks
-    .map((item) => manualBlock({ ...item }, entry, energyMode))
+    .map((presetItem) => {
+      const edited = entry.timeline.find((item) => item.id === presetItem.id && item.generated === false);
+      const base = edited ? { ...presetItem, start: edited.start, end: edited.end, generated: false } : presetItem;
+      return manualBlock({ ...base }, entry, energyMode);
+    })
     .filter((item) => item.state !== "skipped")
     .filter((item) => !(item.kind === "physical" && entry.physicalType === "rest"))
     .sort((a, b) => parseTime(a.start) - parseTime(b.start));
@@ -337,6 +345,8 @@ function scheduleMessage(now: Date, status: AdaptiveScheduleStatus, pending: str
 }
 
 function addSleep(blocks: TimelineItem[], settings: AppSettings): void {
+  if (blocks.some((existing) => existing.id === "sleep")) return;
+
   blocks.push({
     id: "sleep",
     start: settings.bedtime,
@@ -610,6 +620,32 @@ export function setActivityState(entry: DailyEntry, activity: TrackedActivity, s
     case "decompression":
       return { ...entry, timeline, decompressionStatus: state };
   }
+}
+
+/**
+ * Sets a single block's start/end time in place and marks it generated:false so it is treated
+ * as user-set going forward: Adaptive mode's isPreserved already keeps generated:false blocks
+ * in place across Adapt Plan, and manualTimeline prefers a generated:false block's stored time
+ * over the current Settings preset for Normal/Late Wake. Does not touch locked, state, title,
+ * description, or any other block. For physical/focus blocks, also syncs entry.physicalStart/End
+ * or entry.focusStart/End so the dedicated cards and doneMarker (which read those fields, not
+ * the timeline block) stay consistent with the edit.
+ */
+export function setBlockTime(entry: DailyEntry, id: string, start: string, end?: string): DailyEntry {
+  if (!start) return entry;
+
+  const target = entry.timeline.find((item) => item.id === id);
+  const timeline = entry.timeline.map((item) => (item.id === id ? { ...item, start, end, generated: false } : item));
+
+  if (target?.kind === "physical") {
+    return { ...entry, timeline, physicalStart: start, physicalEnd: end ?? entry.physicalEnd };
+  }
+
+  if (target?.kind === "focus") {
+    return { ...entry, timeline, focusStart: start, focusEnd: end ?? entry.focusEnd };
+  }
+
+  return { ...entry, timeline };
 }
 
 export interface FocusContentPatch {
