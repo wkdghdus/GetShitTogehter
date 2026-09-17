@@ -247,6 +247,90 @@ export interface FocusSessionRecord {
   completedAt?: string;
 }
 
+export type CurriculumTrackId = "system-design" | "leetcode";
+export type ProblemRating = "red" | "yellow" | "green";
+
+export interface CurriculumDayProgress {
+  completedOn?: string;
+  note?: string;
+}
+
+export interface ProblemAttempt {
+  date: string;
+  rating: ProblemRating;
+}
+
+export interface CurriculumProblemProgress {
+  slug: string;
+  attempts: ProblemAttempt[];
+  keyInsight?: string;
+}
+
+export interface CurriculumUserProblem {
+  slug: string;
+  name: string;
+  pattern?: string;
+  addedOn: string;
+}
+
+export interface CurriculumTrackProgress {
+  trackId: CurriculumTrackId;
+  contentVersion: number;
+  startedOn?: string;
+  currentDay: number;
+  days: Record<string, CurriculumDayProgress>;
+}
+
+export interface SystemDesignCurriculumProgress extends CurriculumTrackProgress {
+  trackId: "system-design";
+}
+
+export interface LeetcodeCurriculumProgress extends CurriculumTrackProgress {
+  trackId: "leetcode";
+  problems: Record<string, CurriculumProblemProgress>;
+  userProblems: CurriculumUserProblem[];
+}
+
+export interface CurriculumWeek {
+  week: number;
+  title: string;
+  intent: string;
+  firstDay: number;
+  lastDay: number;
+}
+
+export interface SystemDesignDay {
+  dayId: string;
+  day: number;
+  week: number;
+  title: string;
+  mode: "learn" | "practice";
+  learn: string[];
+  exercise?: string;
+  helloInterview?: string;
+  alexXu?: string;
+  caution?: string;
+}
+
+export interface LeetcodeProblem {
+  slug: string;
+  name: string;
+  pattern: string;
+  role: "solve" | "study";
+  url?: string;
+}
+
+export interface LeetcodeDay {
+  dayId: string;
+  day: number;
+  week: number;
+  title: string;
+  learn: string[];
+  problems: LeetcodeProblem[];
+  coldReview: string[];
+  prompt?: string;
+}
+
 export interface AppState {
   version: 1;
   createdAt: string;
@@ -264,4 +348,6 @@ export interface AppState {
   adminInbox: AdminTask[];
   mentalLoadInbox: MentalLoadItem[];
   focusSessions: FocusSessionRecord[];
+  systemDesignCurriculum: SystemDesignCurriculumProgress;
+  leetcodeCurriculum: LeetcodeCurriculumProgress;
 }
