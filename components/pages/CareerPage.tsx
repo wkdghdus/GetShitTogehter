@@ -7,6 +7,7 @@ import { createId } from "@/lib/defaults";
 import { getWeekStart } from "@/lib/dates";
 import type { Confidence, Difficulty, LeetcodeEntry, LeetcodeStatus, SystemDesignEntry } from "@/lib/types";
 import { Badge, Button, Card, EmptyState, Field, Input, SectionHeader, Select, SimpleGrid, Textarea } from "@/components/ui";
+import { CurriculumTrackNav } from "@/components/CurriculumTrackNav";
 
 const PATTERNS = ["Arrays", "Hash maps", "Two pointers", "Sliding window", "Binary search", "Stack", "Linked list", "Trees", "Graphs", "Heap", "Backtracking", "Dynamic programming", "Greedy", "Intervals"];
 const DESIGN_TOPICS = ["Load balancing", "Caching", "Databases", "Replication", "Partitioning", "Message queues", "APIs", "Rate limiting", "Consistency", "Distributed systems", "Search", "Object storage", "CDN", "Observability"];
@@ -76,6 +77,7 @@ export function CareerPage() {
   return (
     <div>
       <SectionHeader eyebrow="Bounded progress" title="Career" description="Career is the highest long-term development priority. It advances through focused sessions, not endless evenings." />
+      <CurriculumTrackNav />
 
       <SimpleGrid className="mb-8">
         <Card tone="quiet"><p className="text-sm text-[color:var(--muted)]">Interview prep this week</p><p className="mt-2 text-3xl font-bold">{leetcodeThisWeek + systemThisWeek}</p><p className="mt-1 text-xs text-[color:var(--muted)]">Leetcode + system design sessions</p></Card>
