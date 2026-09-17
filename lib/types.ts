@@ -18,6 +18,10 @@ export type FocusCategory =
   | "admin";
 
 export type DailyStatus = "complete" | "solid" | "recovery" | "low-energy" | "rest";
+export type TimelineMode = "adaptive" | "normal" | "late-wake";
+export type EnergyMode = "normal" | "low";
+export type CompletionState = "pending" | "completed" | "skipped";
+export type AdaptiveScheduleStatus = "on-track" | "adjusted" | "compressed" | "minimal";
 export type TaskStatus = "not-started" | "in-progress" | "blocked" | "complete";
 export type ProjectStatus = "active" | "paused" | "complete";
 export type ApplicationStatus =
@@ -54,6 +58,11 @@ export interface TimelineItem {
   end?: string;
   title: string;
   description?: string;
+  state?: CompletionState;
+  locked?: boolean;
+  generated?: boolean;
+  compressed?: boolean;
+  minimumViable?: boolean;
   kind:
     | "anchor"
     | "physical"
@@ -63,7 +72,14 @@ export interface TimelineItem {
     | "focus"
     | "life"
     | "shutdown"
-    | "sleep";
+    | "sleep"
+    | "custom";
+}
+
+export interface TimelinePreset {
+  id: Exclude<TimelineMode, "adaptive">;
+  name: string;
+  blocks: TimelineItem[];
 }
 
 export interface WeeklyRoutineDay {
@@ -74,6 +90,7 @@ export interface WeeklyRoutineDay {
   focusCategory: FocusCategory;
   focusLabel: string;
   focusObjective: string;
+  focusNextAction?: string;
   focusStart: string;
   focusEnd: string;
 }
@@ -90,31 +107,44 @@ export interface AppSettings {
   freeLifeStart: string;
   freeLifeEnd: string;
   weeklyApplicationTarget: number;
+  defaultTimelineMode: TimelineMode;
   weeklyRoutine: Record<Weekday, WeeklyRoutineDay>;
-  timelineTemplate: TimelineItem[];
+  maximumAutomaticBedtimeDelayMinutes: number;
+  timelinePresets: Record<Exclude<TimelineMode, "adaptive">, TimelinePreset>;
+  /** Kept only so version 1 localStorage exports can be migrated safely. */
+  timelineTemplate?: TimelineItem[];
 }
 
 export interface DailyEntry {
   date: string;
   weekday: Weekday;
+  timelineMode: TimelineMode;
+  energyMode: EnergyMode;
   physicalType: PhysicalType;
   physicalLabel: string;
   physicalStart: string;
   physicalEnd: string;
   physicalCompleted: boolean;
+  physicalStatus: CompletionState;
   workCompleted: boolean;
+  workStatus: CompletionState;
   focusCategory: FocusCategory;
   focusLabel: string;
   focusObjective: string;
+  focusNextAction?: string;
   focusStart: string;
   focusEnd: string;
   focusCompleted: boolean;
+  focusStatus: CompletionState;
+  decompressionStatus: CompletionState;
   focusNote?: string;
-  lowEnergyMode: boolean;
   lowEnergyChoice?: string;
   shutdownDone?: string;
   shutdownCompletedAt?: string;
   tomorrowPriority?: string;
+  generatedStatus?: AdaptiveScheduleStatus;
+  generatedMessage?: string;
+  pendingCore?: string[];
   lifeCheckIns: string[];
   timeline: TimelineItem[];
 }
