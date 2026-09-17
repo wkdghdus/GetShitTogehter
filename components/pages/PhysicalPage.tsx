@@ -19,7 +19,9 @@ export function PhysicalPage() {
   if (!isHydrated || !state) return <p className="text-[color:var(--muted)]">Loading physical routine…</p>;
 
   const weekStart = getWeekStart(todayDate);
-  const completedThisWeek = Object.values(state.dailyEntries).filter((entry) => entry.date >= weekStart && entry.physicalCompleted).length;
+  const completedThisWeek = Object.values(state.dailyEntries).filter(
+    (entry) => entry.date >= weekStart && entry.physicalStatus === "completed",
+  ).length;
   const basketballThisWeek = state.basketballSessions.filter((session) => session.date >= weekStart).length;
 
   const addTemplate = (event: FormEvent<HTMLFormElement>) => {
