@@ -5,7 +5,8 @@ import { useEffect, useMemo, useState } from "react";
 import { useAppState } from "@/context/app-state-context";
 import { createId } from "@/lib/defaults";
 import { formatDisplayDate, getWeekStart, isWeekend } from "@/lib/dates";
-import type { DailyEntry, MentalLoadArea } from "@/lib/types";
+import { arrangeDailyEntry, getPendingCoreActivities, getRightNow, getTimelineStatusLabel } from "@/lib/timeline";
+import type { DailyEntry, EnergyMode, MentalLoadArea, TimelineMode } from "@/lib/types";
 import {
   Badge,
   Button,
@@ -81,22 +82,6 @@ function getWins(entry: DailyEntry): Record<WinKey, boolean> {
 }
 
 function calculateDayStatus(entry: DailyEntry) {
-  if (entry.lowEnergyMode) {
-    const lowEnergyProgress =
-      Number(entry.physicalCompleted) + Number(entry.focusCompleted) + Number(entry.lifeCheckIns.length > 0);
-
-    return {
-      title: "Low Energy Day",
-      description:
-        lowEnergyProgress >= 2
-          ? "Reduced intensity still counts. Keep the day small and closed."
-          : "A low-energy day is not a failed day. Pick the smallest useful next action.",
-      tone: "warning" as const,
-      completed: lowEnergyProgress,
-      total: 3,
-    };
-  }
-
   const wins = getWins(entry);
   const requiredWins: WinKey[] = isWeekend(entry.date) ? ["body", "future"] : ["body", "work", "future"];
   const completed = requiredWins.filter((key) => wins[key]).length;
@@ -131,7 +116,6 @@ function calculateDayStatus(entry: DailyEntry) {
 }
 
 function historyStatus(entry: DailyEntry) {
-  if (entry.lowEnergyMode) return "Low Energy";
   if (entry.physicalType === "rest" && !entry.focusCompleted) return "Rest";
   if (entry.physicalType === "recovery" && entry.physicalCompleted) return "Recovery";
 
@@ -152,6 +136,7 @@ function TimelineKindBadge({ kind }: { kind: DailyEntry["timeline"][number]["kin
     life: "Protected",
     shutdown: "Shutdown",
     sleep: "Sleep",
+    custom: "Custom",
   }[kind];
 
   return (
@@ -193,22 +178,67 @@ export function TodayPage() {
   }
 
   const dayStatus = calculateDayStatus(today);
+  const timelineStatusLabel = today.timelineMode === "adaptive"
+    ? getTimelineStatusLabel(today.timeline)
+    : today.timelineMode === "late-wake" ? "Manual Late Wake" : "Manual Normal";
+  const pendingCoreActivities = getPendingCoreActivities(today);
+  const rightNow = today.timelineMode === "adaptive" ? getRightNow(today) : undefined;
   const weekStart = getWeekStart(todayDate);
   const weekReview = state.weeklyReviews[weekStart];
   const weeklyOutcomes = weekReview?.priorities ?? [];
   const wins = getWins(today);
   const weekend = isWeekend(today.date);
+  const workBlock = today.timeline.find((item) => item.id === "work");
+  const freeLifeBlock = today.timeline.find((item) => item.id === "free-life");
+  const shutdownBlock = today.timeline.find((item) => item.id === "shutdown");
   const activeProject = today.focusCategory === "project"
     ? state.projects.find((project) => project.status === "active")
     : undefined;
 
-  const saveFocus = () => {
+  const updateSetup = (timelineMode: TimelineMode, energyMode: EnergyMode) => {
+    updateToday((entry) => arrangeDailyEntry(entry, timelineMode, energyMode, state.settings, new Date()));
+  };
+
+  const refreshPlan = () => {
+    updateToday((entry) => arrangeDailyEntry(entry, entry.timelineMode, entry.energyMode, state.settings, new Date()));
+  };
+
+  const updateActivityStatus = (
+    activity: "physical" | "focus" | "work" | "decompression",
+    status: "pending" | "completed" | "skipped",
+  ) => {
+    updateToday((entry) => arrangeDailyEntry(
+      {
+        ...entry,
+        ...(activity === "physical" ? { physicalStatus: status, physicalCompleted: status === "completed" } : {}),
+        ...(activity === "focus" ? { focusStatus: status, focusCompleted: status === "completed" } : {}),
+        ...(activity === "work" ? { workStatus: status, workCompleted: status === "completed" } : {}),
+        ...(activity === "decompression" ? { decompressionStatus: status } : {}),
+      },
+      entry.timelineMode,
+      entry.energyMode,
+      state.settings,
+      new Date(),
+    ));
+  };
+
+  const toggleTimelineLock = (id: string) => {
     updateToday((entry) => ({
       ...entry,
-      focusLabel: focusLabel.trim() || entry.focusLabel,
-      focusObjective: focusObjective.trim() || entry.focusObjective,
-      focusNote: focusNote.trim() || undefined,
+      timeline: entry.timeline.map((item) => (item.id === id ? { ...item, locked: !item.locked } : item)),
     }));
+  };
+
+  const saveFocus = () => {
+    updateToday((entry) => {
+      const updated = {
+        ...entry,
+        focusLabel: focusLabel.trim() || entry.focusLabel,
+        focusObjective: focusObjective.trim() || entry.focusObjective,
+        focusNote: focusNote.trim() || undefined,
+      };
+      return arrangeDailyEntry(updated, entry.timelineMode, entry.energyMode, state.settings, new Date());
+    });
   };
 
   const addMentalLoadItem = () => {
@@ -265,39 +295,155 @@ export function TodayPage() {
         action={<Badge tone={dayStatus.tone}>{`${dayStatus.completed} / ${dayStatus.total} wins`}</Badge>}
       />
 
-      <Card tone={dayStatus.tone === "success" ? "success" : "quiet"} className="mb-5">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+      <Card className="mb-5">
+        <CardHeader
+          title="Today's Plan"
+          description={`Mode: ${today.timelineMode === "adaptive" ? "Adaptive" : today.timelineMode === "late-wake" ? "Late Wake" : "Normal"} · Current status: ${timelineStatusLabel}`}
+          action={<Button variant="secondary" onClick={refreshPlan}>Refresh Plan</Button>}
+        />
+        <div className="grid gap-5 sm:grid-cols-2">
           <div>
-            <h2 className="text-2xl font-bold text-[color:var(--text)]">{dayStatus.title}</h2>
-            <p className="mt-1 text-[color:var(--muted)]">{dayStatus.description}</p>
+            <p className="mb-2 text-sm font-bold text-[color:var(--text)]">Timeline</p>
+            <div className="flex flex-wrap gap-2" role="group" aria-label="Today's timeline">
+              <Button
+                variant={today.timelineMode === "adaptive" ? "primary" : "secondary"}
+                aria-pressed={today.timelineMode === "adaptive"}
+                onClick={() => updateSetup("adaptive", today.energyMode)}
+              >
+                Adaptive
+              </Button>
+              <Button
+                variant={today.timelineMode === "normal" ? "primary" : "secondary"}
+                aria-pressed={today.timelineMode === "normal"}
+                onClick={() => updateSetup("normal", today.energyMode)}
+              >
+                Normal Day
+              </Button>
+              <Button
+                variant={today.timelineMode === "late-wake" ? "primary" : "secondary"}
+                aria-pressed={today.timelineMode === "late-wake"}
+                onClick={() => updateSetup("late-wake", today.energyMode)}
+              >
+                Late Wake Day
+              </Button>
+            </div>
           </div>
-          <Button
-            variant={today.lowEnergyMode ? "secondary" : "ghost"}
-            onClick={() =>
-              updateToday((entry) => ({
-                ...entry,
-                lowEnergyMode: !entry.lowEnergyMode,
-                lowEnergyChoice: !entry.lowEnergyMode ? entry.lowEnergyChoice : undefined,
-              }))
-            }
-          >
-            {today.lowEnergyMode ? "Use normal day" : "Low Energy Day"}
-          </Button>
+          <div>
+            <p className="mb-2 text-sm font-bold text-[color:var(--text)]">Energy</p>
+            <div className="flex flex-wrap gap-2" role="group" aria-label="Today's energy">
+              <Button
+                variant={today.energyMode === "normal" ? "primary" : "secondary"}
+                aria-pressed={today.energyMode === "normal"}
+                onClick={() => updateSetup(today.timelineMode, "normal")}
+              >
+                Normal
+              </Button>
+              <Button
+                variant={today.energyMode === "low" ? "primary" : "secondary"}
+                aria-pressed={today.energyMode === "low"}
+                onClick={() => updateSetup(today.timelineMode, "low")}
+              >
+                Low Energy
+              </Button>
+            </div>
+          </div>
+        </div>
+        {today.timelineMode === "adaptive" ? (
+          <div className="mt-5 rounded-lg bg-[color:var(--surface-muted)] p-4">
+            <h3 className="font-bold text-[color:var(--text)]">Adaptive Timeline</h3>
+            <p className="mt-1 text-sm text-[color:var(--muted)]">
+              The remaining schedule is rebuilt from the current time, completion state, energy, and bedtime.
+            </p>
+          </div>
+        ) : today.timelineMode === "late-wake" ? (
+          <div className="mt-5 rounded-lg bg-[color:var(--surface-muted)] p-4">
+            <h3 className="font-bold text-[color:var(--text)]">Late Wake Timeline</h3>
+            <p className="mt-1 text-sm text-[color:var(--muted)]">
+              Morning training has been moved to this evening. Your priorities for today remain the same.
+            </p>
+          </div>
+        ) : null}
+      </Card>
+
+      {rightNow ? (
+        <Card className="mb-5" tone="quiet">
+          <CardHeader
+            title="Right Now"
+            description={rightNow.current ? timeRange(rightNow.current.start, rightNow.current.end) : "The day hasn't started yet."}
+          />
+          {rightNow.current ? (
+            <div>
+              <h3 className="font-bold text-[color:var(--text)]">{rightNow.current.title}</h3>
+              {rightNow.current.description ? (
+                <p className="text-sm text-[color:var(--muted)]">{rightNow.current.description}</p>
+              ) : null}
+            </div>
+          ) : (
+            <p className="text-sm text-[color:var(--muted)]">Nothing scheduled yet.</p>
+          )}
+          {rightNow.next ? (
+            <div className="mt-4 border-t border-[color:var(--border)] pt-4">
+              <p className="text-xs font-bold uppercase tracking-wide text-[color:var(--muted)]">Next</p>
+              <h4 className="font-bold text-[color:var(--text)]">{rightNow.next.title}</h4>
+              <p className="text-sm text-[color:var(--muted)]">Starts at {rightNow.next.start}</p>
+            </div>
+          ) : null}
+        </Card>
+      ) : null}
+
+      <Card className="mb-5" tone="quiet">
+        <CardHeader title="Still Meaningful Today" description="Only today's core pending commitments appear here." />
+        {pendingCoreActivities.length > 0 ? (
+          <div className="flex flex-wrap gap-2">
+            {pendingCoreActivities.map((activity) => (
+              <Badge key={activity} tone="accent">{activity}</Badge>
+            ))}
+          </div>
+        ) : (
+          <p className="text-sm text-[color:var(--muted)]">No core commitments are pending.</p>
+        )}
+      </Card>
+
+      <Card tone={dayStatus.tone === "success" ? "success" : "quiet"} className="mb-5">
+        <div>
+          <h2 className="text-2xl font-bold text-[color:var(--text)]">{dayStatus.title}</h2>
+          <p className="mt-1 text-[color:var(--muted)]">{dayStatus.description}</p>
         </div>
       </Card>
 
       <SimpleGrid>
         <Card tone={wins.body ? "success" : "default"}>
-          <CardHeader title="Body" description="Morning physical activity is the physical win." />
+          <CardHeader
+            title="Body"
+            description={today.timelineMode === "adaptive"
+              ? "Adaptive mode moves, compresses, or minimizes physical activity when useful."
+              : today.timelineMode === "late-wake"
+              ? "Physical activity follows protected decompression."
+              : "Morning physical activity is the physical win."}
+          />
           <p className="text-2xl font-bold text-[color:var(--text)]">{today.physicalLabel}</p>
-          <p className="mt-1 text-sm text-[color:var(--muted)]">{timeRange(today.physicalStart, today.physicalEnd)}</p>
+          <p className="mt-1 text-sm text-[color:var(--muted)]">
+            {today.physicalCompleted && today.timelineMode === "late-wake"
+              ? "Physical activity already completed."
+              : timeRange(today.physicalStart, today.physicalEnd)}
+          </p>
           <CheckboxRow
             className="mt-5"
             label="Completed"
             description={today.physicalType === "rest" ? "Rest counts as following the plan." : undefined}
             checked={today.physicalCompleted}
-            onChange={(event) => updateToday((entry) => ({ ...entry, physicalCompleted: event.target.checked }))}
+            onChange={(event) => updateActivityStatus("physical", event.target.checked ? "completed" : "pending")}
           />
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Button variant="ghost" onClick={() => updateActivityStatus("physical", "skipped")}>
+              Skip for Today
+            </Button>
+            {today.physicalStatus === "skipped" ? (
+              <Button variant="secondary" onClick={() => updateActivityStatus("physical", "pending")}>
+                Restore
+              </Button>
+            ) : null}
+          </div>
         </Card>
 
         <Card tone={wins.work ? "success" : "default"}>
@@ -305,7 +451,9 @@ export function TodayPage() {
             title="Work"
             description={weekend ? "Weekends do not require the 9-5 workday condition." : "Keep this simple."}
           />
-          <p className="text-2xl font-bold text-[color:var(--text)]">{weekend ? "No workday required" : `${state.settings.workStart} - ${state.settings.workEnd}`}</p>
+          <p className="text-2xl font-bold text-[color:var(--text)]">
+            {weekend ? "No workday required" : timeRange(workBlock?.start ?? state.settings.workStart, workBlock?.end ?? state.settings.workEnd)}
+          </p>
           <p className="mt-1 text-sm text-[color:var(--muted)]">
             This dashboard is not a work task manager.
           </p>
@@ -314,12 +462,15 @@ export function TodayPage() {
             label="Workday complete"
             checked={today.workCompleted}
             disabled={weekend}
-            onChange={(event) => updateToday((entry) => ({ ...entry, workCompleted: event.target.checked }))}
+            onChange={(event) => updateActivityStatus("work", event.target.checked ? "completed" : "pending")}
           />
         </Card>
 
         <Card tone={wins.future ? "success" : "default"}>
-          <CardHeader title="Future" description="Exactly one primary evening objective." />
+          <CardHeader
+            title="Future"
+            description={`Exactly one primary objective · ${timeRange(today.focusStart, today.focusEnd)}`}
+          />
           <div className="space-y-3">
             <Field label="Focus label">
               <Input value={focusLabel} onChange={(event) => setFocusLabel(event.target.value)} />
@@ -352,11 +503,20 @@ export function TodayPage() {
           ) : null}
           <div className="mt-4 flex flex-wrap gap-2">
             <Button onClick={saveFocus}>Save objective</Button>
-            <Button variant="secondary" onClick={() => updateToday((entry) => ({ ...entry, focusCompleted: true }))}>
+            <Button
+              variant="secondary"
+              onClick={() => updateActivityStatus("focus", "completed")}
+            >
               Mark Complete
             </Button>
-            <Button variant="ghost" onClick={() => updateToday((entry) => ({ ...entry, focusCompleted: false }))}>
+            <Button
+              variant="ghost"
+              onClick={() => updateActivityStatus("focus", "pending")}
+            >
               Reopen
+            </Button>
+            <Button variant="ghost" onClick={() => updateActivityStatus("focus", "skipped")}>
+              Skip for Today
             </Button>
             <Link
               href="/focus"
@@ -368,10 +528,10 @@ export function TodayPage() {
         </Card>
       </SimpleGrid>
 
-      {today.lowEnergyMode ? (
+      {today.energyMode === "low" ? (
         <Card className="mt-5" tone="quiet">
           <CardHeader
-            title="Low Energy Day"
+            title="Low Energy Mode"
             description="Consistency at reduced intensity is better than alternating between extremes and avoidance."
           />
           <div className="grid gap-4 md:grid-cols-3">
@@ -410,21 +570,32 @@ export function TodayPage() {
       ) : null}
 
       <section className="mt-8">
-        <SectionHeader
+          <SectionHeader
           eyebrow="Routine"
-          title="Today's timeline"
-          description="A chronological shape for the day. These are boundaries and reminders, not another checklist."
+          title={today.timelineMode === "adaptive"
+            ? "Rest of Today"
+            : today.timelineMode === "late-wake" ? "Late Wake Timeline" : "Normal Day Timeline"}
+          description={today.timelineMode === "adaptive"
+            ? "A rebuilt schedule for the remaining day. These are boundaries and reminders, not another checklist."
+            : today.timelineMode === "late-wake"
+            ? "The same priorities, arranged without rushing the morning. These blocks are reminders, not another checklist."
+            : "A chronological shape for the day. These are boundaries and reminders, not another checklist."}
         />
         <Card>
           <ol className="space-y-4">
-            {today.timeline.map((item) => (
+            {today.timeline.filter((item) => item.id !== "adaptive-status").map((item) => (
               <li key={item.id} className="grid gap-3 border-b border-[color:var(--border)] pb-4 last:border-0 last:pb-0 sm:grid-cols-[8rem_minmax(0,1fr)_auto]">
                 <p className="font-mono text-sm font-bold text-[color:var(--muted)]">{timeRange(item.start, item.end)}</p>
                 <div>
                   <h3 className="font-bold text-[color:var(--text)]">{item.title}</h3>
                   {item.description ? <p className="text-sm text-[color:var(--muted)]">{item.description}</p> : null}
                 </div>
-                <TimelineKindBadge kind={item.kind} />
+                <div className="flex items-center gap-2">
+                  <TimelineKindBadge kind={item.kind} />
+                  <Button variant="ghost" onClick={() => toggleTimelineLock(item.id)}>
+                    {item.locked ? "Locked" : "Lock"}
+                  </Button>
+                </div>
               </li>
             ))}
           </ol>
@@ -436,6 +607,9 @@ export function TodayPage() {
           <CardHeader
             title="Decompression"
             description="Work is finished. Do not immediately begin career tasks."
+            action={today.decompressionStatus === "completed"
+              ? <Badge tone="success">Done</Badge>
+              : <Button variant="secondary" onClick={() => updateActivityStatus("decompression", "completed")}>Mark Done</Button>}
           />
           <p className="text-sm text-[color:var(--muted)]">
             Mental transition from work to personal life is necessary, not wasted time.
@@ -452,7 +626,7 @@ export function TodayPage() {
         <Card tone="quiet">
           <CardHeader
             title="Free Life"
-            description={`${state.settings.freeLifeStart} - ${state.settings.freeLifeEnd}. This is part of the routine.`}
+            description={`${timeRange(freeLifeBlock?.start ?? state.settings.freeLifeStart, freeLifeBlock?.end ?? state.settings.freeLifeEnd)}. This is part of the routine.`}
           />
           <p className="text-sm text-[color:var(--muted)]">
             The planned focus block being completed is enough. This time does not need to be earned through exhaustion.
@@ -519,7 +693,7 @@ export function TodayPage() {
         <Card>
           <CardHeader
             title="Nightly Shutdown"
-            description={`${state.settings.freeLifeEnd} is the default cue to close the day.`}
+            description={`${shutdownBlock?.start ?? state.settings.freeLifeEnd} is today's cue to close the day.`}
           />
           <div className="space-y-3">
             <Field label="Done today">
