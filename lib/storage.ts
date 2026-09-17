@@ -1,6 +1,17 @@
 import { createDailyEntry, createInitialAppState, createWeekReview } from "./defaults";
 import { getLocalDate, getWeekStart } from "./dates";
-import type { AppState, DailyEntry } from "./types";
+import type {
+  AppState,
+  CurriculumDayProgress,
+  CurriculumProblemProgress,
+  CurriculumTrackProgress,
+  CurriculumUserProblem,
+  DailyEntry,
+  LeetcodeCurriculumProgress,
+  ProblemAttempt,
+  ProblemRating,
+  SystemDesignCurriculumProgress,
+} from "./types";
 
 export const APP_STATE_STORAGE_KEY = "personal-routine-dashboard:v1";
 
@@ -83,6 +94,120 @@ function isAppState(value: unknown): value is AppState {
   );
 }
 
+const SYSTEM_DESIGN_TOTAL_DAYS = 28;
+const LEETCODE_TOTAL_DAYS = 56;
+
+function isProblemRating(value: unknown): value is ProblemRating {
+  return value === "red" || value === "yellow" || value === "green";
+}
+
+function mergeCurrentDay(raw: unknown, fallback: number, totalDays: number): number {
+  const coerced = Number(raw);
+  if (!Number.isFinite(coerced)) return fallback;
+  return Math.min(Math.max(Math.round(coerced), 1), totalDays);
+}
+
+function mergeDayProgress(
+  raw: unknown,
+  defaults: Record<string, CurriculumDayProgress>,
+): Record<string, CurriculumDayProgress> {
+  if (!isRecord(raw)) return defaults;
+
+  const entries: Array<[string, CurriculumDayProgress]> = [];
+  for (const [dayId, stored] of Object.entries(raw)) {
+    if (!isRecord(stored)) continue;
+    const day: CurriculumDayProgress = {};
+    if (typeof stored.completedOn === "string") day.completedOn = stored.completedOn;
+    if (typeof stored.note === "string") day.note = stored.note;
+    entries.push([dayId, day]);
+  }
+  return Object.fromEntries(entries);
+}
+
+function mergeProblemProgress(
+  raw: unknown,
+  defaults: Record<string, CurriculumProblemProgress>,
+): Record<string, CurriculumProblemProgress> {
+  if (!isRecord(raw)) return defaults;
+
+  const entries: Array<[string, CurriculumProblemProgress]> = [];
+  for (const [slug, stored] of Object.entries(raw)) {
+    if (!isRecord(stored)) continue;
+    const attempts: ProblemAttempt[] = (Array.isArray(stored.attempts) ? stored.attempts : [])
+      .filter((attempt): attempt is Record<string, unknown> => isRecord(attempt))
+      .filter((attempt) => typeof attempt.date === "string" && isProblemRating(attempt.rating))
+      .map((attempt) => ({ date: attempt.date as string, rating: attempt.rating as ProblemRating }));
+    // A problem record exists because it was attempted, so an empty-attempts record is
+    // meaningless — and dropping it here keeps it out of the review-scheduling engine.
+    if (attempts.length === 0) continue;
+
+    const problem: CurriculumProblemProgress = { slug, attempts };
+    if (typeof stored.keyInsight === "string") problem.keyInsight = stored.keyInsight;
+    entries.push([slug, problem]);
+  }
+  return Object.fromEntries(entries);
+}
+
+function mergeUserProblems(raw: unknown, defaults: CurriculumUserProblem[]): CurriculumUserProblem[] {
+  if (!Array.isArray(raw)) return defaults;
+
+  const problems: CurriculumUserProblem[] = [];
+  for (const stored of raw) {
+    if (!isRecord(stored)) continue;
+    if (typeof stored.slug !== "string" || typeof stored.name !== "string" || typeof stored.addedOn !== "string") {
+      continue;
+    }
+    const problem: CurriculumUserProblem = {
+      slug: stored.slug,
+      name: stored.name,
+      addedOn: stored.addedOn,
+    };
+    if (typeof stored.pattern === "string") problem.pattern = stored.pattern;
+    problems.push(problem);
+  }
+  return problems;
+}
+
+function mergeTrackBase(
+  raw: unknown,
+  defaults: CurriculumTrackProgress,
+  totalDays: number,
+): Omit<CurriculumTrackProgress, "trackId"> {
+  const stored = isRecord(raw) ? raw : {};
+  const contentVersion = Number(stored.contentVersion);
+  const base: Omit<CurriculumTrackProgress, "trackId"> = {
+    contentVersion: Number.isFinite(contentVersion) ? contentVersion : defaults.contentVersion,
+    currentDay: mergeCurrentDay(stored.currentDay, defaults.currentDay, totalDays),
+    days: mergeDayProgress(stored.days, defaults.days),
+  };
+  const startedOn = typeof stored.startedOn === "string" ? stored.startedOn : defaults.startedOn;
+  if (startedOn !== undefined) base.startedOn = startedOn;
+  return base;
+}
+
+function mergeSystemDesignCurriculum(
+  raw: unknown,
+  defaults: SystemDesignCurriculumProgress,
+): SystemDesignCurriculumProgress {
+  return {
+    ...mergeTrackBase(raw, defaults, SYSTEM_DESIGN_TOTAL_DAYS),
+    trackId: "system-design",
+  };
+}
+
+function mergeLeetcodeCurriculum(
+  raw: unknown,
+  defaults: LeetcodeCurriculumProgress,
+): LeetcodeCurriculumProgress {
+  const stored = isRecord(raw) ? raw : {};
+  return {
+    ...mergeTrackBase(raw, defaults, LEETCODE_TOTAL_DAYS),
+    trackId: "leetcode",
+    problems: mergeProblemProgress(stored.problems, defaults.problems),
+    userProblems: mergeUserProblems(stored.userProblems, defaults.userProblems),
+  };
+}
+
 function mergeWithDefaults(value: AppState): AppState {
   const defaults = createInitialAppState();
 
@@ -106,6 +231,8 @@ function mergeWithDefaults(value: AppState): AppState {
     weeklyReviews: {
       ...value.weeklyReviews,
     },
+    systemDesignCurriculum: mergeSystemDesignCurriculum(value.systemDesignCurriculum, defaults.systemDesignCurriculum),
+    leetcodeCurriculum: mergeLeetcodeCurriculum(value.leetcodeCurriculum, defaults.leetcodeCurriculum),
     updatedAt: value.updatedAt || nowIso(),
   };
 }
