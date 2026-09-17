@@ -37,6 +37,22 @@ export function parseLocalDate(date: string): Date {
   return new Date(year, month - 1, day);
 }
 
+export function addDays(date: string, days: number): string {
+  const value = parseLocalDate(date);
+  value.setDate(value.getDate() + days);
+  return getLocalDate(value);
+}
+
+const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1000;
+
+// Rounds because parseLocalDate builds local midnight, so a span crossing a DST
+// transition is 23 or 25 hours and would floor to the wrong number of days.
+export function diffDays(a: string, b: string): number {
+  const from = parseLocalDate(a).getTime();
+  const to = parseLocalDate(b).getTime();
+  return Math.round((to - from) / MILLISECONDS_PER_DAY);
+}
+
 export function formatDisplayDate(date: string | Date = new Date()): string {
   const value = typeof date === "string" ? parseLocalDate(date) : date;
   return new Intl.DateTimeFormat(undefined, {
