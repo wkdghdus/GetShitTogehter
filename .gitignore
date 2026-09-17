@@ -5,6 +5,7 @@ out/
 dist/
 build/
 coverage/
+.test-dist/
 .DS_Store
 *.log
 *.tsbuildinfo
