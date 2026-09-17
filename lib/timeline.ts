@@ -575,3 +575,49 @@ export function getRightNow(entry: DailyEntry, now: Date = new Date()): RightNow
     next: currentIndex + 1 < items.length ? items[currentIndex + 1] : undefined,
   };
 }
+
+export type TrackedActivity = "physical" | "focus" | "work" | "decompression";
+
+/**
+ * Marks a single activity's completion state in place: updates its status field(s) and the
+ * matching timeline block(s) only. Every other block's timing/title is untouched. Adaptive
+ * planning only recomputes the remaining schedule when the user explicitly asks for it (the
+ * Adapt Plan action) — never as a side effect of checking something off.
+ */
+export function setActivityState(entry: DailyEntry, activity: TrackedActivity, state: CompletionState): DailyEntry {
+  const timeline = entry.timeline.map((item) => (item.kind === activity ? { ...item, state } : item));
+
+  switch (activity) {
+    case "physical":
+      return { ...entry, timeline, physicalStatus: state, physicalCompleted: state === "completed" };
+    case "focus":
+      return { ...entry, timeline, focusStatus: state, focusCompleted: state === "completed" };
+    case "work":
+      return { ...entry, timeline, workStatus: state, workCompleted: state === "completed" };
+    case "decompression":
+      return { ...entry, timeline, decompressionStatus: state };
+  }
+}
+
+export interface FocusContentPatch {
+  focusLabel?: string;
+  focusObjective?: string;
+  focusNote?: string;
+}
+
+/**
+ * Updates the focus label/objective/note in place and syncs the matching focus timeline
+ * block's title/description to match. Does not touch any block's timing.
+ */
+export function updateFocusContent(entry: DailyEntry, patch: FocusContentPatch): DailyEntry {
+  const focusLabel = patch.focusLabel ?? entry.focusLabel;
+  const focusObjective = patch.focusObjective ?? entry.focusObjective;
+
+  return {
+    ...entry,
+    ...patch,
+    timeline: entry.timeline.map((item) =>
+      item.kind === "focus" ? { ...item, title: focusLabel, description: focusObjective } : item,
+    ),
+  };
+}

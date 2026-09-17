@@ -5,7 +5,14 @@ import { useEffect, useMemo, useState } from "react";
 import { useAppState } from "@/context/app-state-context";
 import { createId } from "@/lib/defaults";
 import { formatDisplayDate, getWeekStart, isWeekend } from "@/lib/dates";
-import { arrangeDailyEntry, getPendingCoreActivities, getRightNow, getTimelineStatusLabel } from "@/lib/timeline";
+import {
+  arrangeDailyEntry,
+  getPendingCoreActivities,
+  getRightNow,
+  getTimelineStatusLabel,
+  setActivityState,
+  updateFocusContent,
+} from "@/lib/timeline";
 import type { DailyEntry, EnergyMode, MentalLoadArea, TimelineMode } from "@/lib/types";
 import {
   Badge,
@@ -199,7 +206,7 @@ export function TodayPage() {
     updateToday((entry) => arrangeDailyEntry(entry, timelineMode, energyMode, state.settings, new Date()));
   };
 
-  const refreshPlan = () => {
+  const adaptPlan = () => {
     updateToday((entry) => arrangeDailyEntry(entry, entry.timelineMode, entry.energyMode, state.settings, new Date()));
   };
 
@@ -207,19 +214,7 @@ export function TodayPage() {
     activity: "physical" | "focus" | "work" | "decompression",
     status: "pending" | "completed" | "skipped",
   ) => {
-    updateToday((entry) => arrangeDailyEntry(
-      {
-        ...entry,
-        ...(activity === "physical" ? { physicalStatus: status, physicalCompleted: status === "completed" } : {}),
-        ...(activity === "focus" ? { focusStatus: status, focusCompleted: status === "completed" } : {}),
-        ...(activity === "work" ? { workStatus: status, workCompleted: status === "completed" } : {}),
-        ...(activity === "decompression" ? { decompressionStatus: status } : {}),
-      },
-      entry.timelineMode,
-      entry.energyMode,
-      state.settings,
-      new Date(),
-    ));
+    updateToday((entry) => setActivityState(entry, activity, status));
   };
 
   const toggleTimelineLock = (id: string) => {
@@ -230,15 +225,13 @@ export function TodayPage() {
   };
 
   const saveFocus = () => {
-    updateToday((entry) => {
-      const updated = {
-        ...entry,
+    updateToday((entry) => ({
+      ...updateFocusContent(entry, {
         focusLabel: focusLabel.trim() || entry.focusLabel,
         focusObjective: focusObjective.trim() || entry.focusObjective,
-        focusNote: focusNote.trim() || undefined,
-      };
-      return arrangeDailyEntry(updated, entry.timelineMode, entry.energyMode, state.settings, new Date());
-    });
+      }),
+      focusNote: focusNote.trim() || undefined,
+    }));
   };
 
   const addMentalLoadItem = () => {
@@ -299,7 +292,7 @@ export function TodayPage() {
         <CardHeader
           title="Today's Plan"
           description={`Mode: ${today.timelineMode === "adaptive" ? "Adaptive" : today.timelineMode === "late-wake" ? "Late Wake" : "Normal"} · Current status: ${timelineStatusLabel}`}
-          action={<Button variant="secondary" onClick={refreshPlan}>Refresh Plan</Button>}
+          action={<Button variant="secondary" onClick={adaptPlan}>Adapt Plan</Button>}
         />
         <div className="grid gap-5 sm:grid-cols-2">
           <div>
@@ -352,7 +345,9 @@ export function TodayPage() {
           <div className="mt-5 rounded-lg bg-[color:var(--surface-muted)] p-4">
             <h3 className="font-bold text-[color:var(--text)]">Adaptive Timeline</h3>
             <p className="mt-1 text-sm text-[color:var(--muted)]">
-              The remaining schedule is rebuilt from the current time, completion state, energy, and bedtime.
+              This schedule only changes when you click Adapt Plan. It will not silently rearrange
+              itself as time passes — click Adapt Plan whenever you want the remaining day rebuilt
+              from the current time, completion state, energy, and bedtime.
             </p>
           </div>
         ) : today.timelineMode === "late-wake" ? (

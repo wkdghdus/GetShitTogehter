@@ -7,6 +7,8 @@ import {
   getBlockDuration,
   getPendingCoreActivities,
   getTimelineStatusLabel,
+  setActivityState,
+  updateFocusContent,
 } from "../lib/timeline";
 import type { DailyEntry } from "../lib/types";
 
@@ -151,5 +153,78 @@ describe("adaptive timeline", () => {
 
     assert.equal(normal.find((item) => item.id === "physical")?.start, "06:30");
     assert.equal(lateWake.find((item) => item.id === "physical")?.start, "18:00");
+  });
+});
+
+describe("in-place activity edits (no clock-following)", () => {
+  it("setActivityState marks only the matching block, leaving every other block untouched", () => {
+    const before = arrangeDailyEntry(
+      { ...tuesdayEntry(), workCompleted: true, workStatus: "completed" },
+      "adaptive",
+      "normal",
+      DEFAULT_SETTINGS,
+      at("17:45"),
+    );
+    const otherBlocksBefore = before.timeline.filter((item) => item.kind !== "physical");
+
+    const after = setActivityState(before, "physical", "completed");
+    const otherBlocksAfter = after.timeline.filter((item) => item.kind !== "physical");
+
+    assert.equal(after.physicalStatus, "completed");
+    assert.equal(after.physicalCompleted, true);
+    assert.equal(block(after, "physical")?.state, "completed");
+    assert.deepEqual(otherBlocksAfter, otherBlocksBefore);
+  });
+
+  it("setActivityState handles skip and revert-to-pending for every tracked activity", () => {
+    const entry = tuesdayEntry();
+
+    const skipped = setActivityState(entry, "focus", "skipped");
+    assert.equal(skipped.focusStatus, "skipped");
+    assert.equal(skipped.focusCompleted, false);
+    assert.equal(block(skipped, "focus")?.state, "skipped");
+
+    const decompressed = setActivityState(entry, "decompression", "completed");
+    assert.equal(decompressed.decompressionStatus, "completed");
+
+    const reverted = setActivityState(setActivityState(entry, "work", "completed"), "work", "pending");
+    assert.equal(reverted.workStatus, "pending");
+    assert.equal(reverted.workCompleted, false);
+  });
+
+  it("setActivityState never reads the clock and never regenerates the schedule", () => {
+    const before = arrangeDailyEntry(
+      { ...tuesdayEntry(), workCompleted: true, workStatus: "completed" },
+      "adaptive",
+      "normal",
+      DEFAULT_SETTINGS,
+      at("17:45"),
+    );
+    const statusBefore = block(before, "adaptive-status");
+
+    const after = setActivityState(before, "physical", "completed");
+
+    assert.deepEqual(block(after, "adaptive-status"), statusBefore);
+  });
+
+  it("updateFocusContent syncs the focus block's title/description without moving any block", () => {
+    const before = arrangeDailyEntry(
+      { ...tuesdayEntry(), workCompleted: true, workStatus: "completed" },
+      "adaptive",
+      "normal",
+      DEFAULT_SETTINGS,
+      at("17:45"),
+    );
+    const otherBlocksBefore = before.timeline.filter((item) => item.kind !== "focus");
+
+    const after = updateFocusContent(before, { focusLabel: "Deep Work", focusObjective: "Ship the export flow." });
+    const otherBlocksAfter = after.timeline.filter((item) => item.kind !== "focus");
+
+    assert.equal(after.focusLabel, "Deep Work");
+    assert.equal(after.focusObjective, "Ship the export flow.");
+    assert.equal(block(after, "focus")?.title, "Deep Work");
+    assert.equal(block(after, "focus")?.description, "Ship the export flow.");
+    assert.equal(block(after, "focus")?.start, block(before, "focus")?.start);
+    assert.deepEqual(otherBlocksAfter, otherBlocksBefore);
   });
 });

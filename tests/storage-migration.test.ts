@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+  createDailyEntry,
   createInitialAppState,
   createLeetcodeCurriculum,
   createSystemDesignCurriculum,
+  DEFAULT_SETTINGS,
 } from "../lib/defaults";
 import { importAppState } from "../lib/storage";
 import type { LeetcodeCurriculumProgress, SystemDesignCurriculumProgress } from "../lib/types";
@@ -266,5 +268,53 @@ describe("storage migration — curriculum fields", () => {
 
   it("keeps version at 1", () => {
     assert.equal(importAppState(blob()).version, 1);
+  });
+});
+
+describe("storage migration — adaptive planning does not follow the clock", () => {
+  it("leaves an already-migrated daily entry's timeline completely untouched", () => {
+    const dayEntry = createDailyEntry("2026-09-08", DEFAULT_SETTINGS);
+    // A marker that generateAdaptiveSchedule could never produce itself — if the merge path
+    // still regenerated the schedule, this would be replaced by a real status label
+    // ("On Track" / "Adjusted" / "Compressed" / "Low Energy").
+    dayEntry.timeline = dayEntry.timeline.map((item) =>
+      item.id === "adaptive-status" ? { ...item, title: "UNTOUCHED-STATUS-MARKER" } : item,
+    );
+    const fixtureTimeline = dayEntry.timeline;
+
+    const state = { ...legacyState(), dailyEntries: { "2026-09-08": dayEntry } };
+    const firstLoad = importAppState(JSON.stringify(state));
+    const secondLoad = importAppState(JSON.stringify(firstLoad));
+
+    assert.deepEqual(firstLoad.dailyEntries["2026-09-08"].timeline, fixtureTimeline);
+    assert.deepEqual(secondLoad.dailyEntries["2026-09-08"].timeline, fixtureTimeline);
+  });
+
+  it("still backfills a real generated schedule for a genuinely pre-migration legacy entry", () => {
+    const legacyEntry: Record<string, unknown> = {
+      date: "2026-09-08",
+      weekday: "tuesday",
+      physicalType: "basketball",
+      physicalLabel: "Basketball",
+      physicalStart: "06:30",
+      physicalEnd: "07:30",
+      physicalCompleted: false,
+      workCompleted: false,
+      focusCategory: "project",
+      focusLabel: "GitHub / AI Project",
+      focusObjective: "Ship one meaningful project improvement.",
+      focusStart: "18:45",
+      focusEnd: "20:15",
+      focusCompleted: false,
+      lifeCheckIns: [],
+      timeline: [],
+    };
+
+    const state = { ...legacyState(), dailyEntries: { "2026-09-08": legacyEntry } };
+    const loaded = importAppState(JSON.stringify(state));
+    const entry = loaded.dailyEntries["2026-09-08"];
+
+    assert.equal(entry.timelineMode, "adaptive");
+    assert.ok(entry.timeline.some((item) => item.id === "adaptive-status"));
   });
 });

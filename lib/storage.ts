@@ -290,6 +290,12 @@ function mergeWithDefaults(value: AppState): AppState {
   const dailyEntries = Object.fromEntries(
     Object.entries(value.dailyEntries).map(([date, entry]) => {
       const { lowEnergyMode, ...storedEntry } = entry as DailyEntry & { lowEnergyMode?: boolean };
+      // Pre-migration data lacks these fields entirely; an already-migrated entry always has them.
+      const isLegacyShape =
+        !isTimelineMode(entry.timelineMode) ||
+        !isCompletionState(entry.physicalStatus) ||
+        !isCompletionState(entry.workStatus) ||
+        !isCompletionState(entry.focusStatus);
       const timelineMode = isTimelineMode(entry.timelineMode) ? entry.timelineMode : settings.defaultTimelineMode;
       const energyMode = isEnergyMode(entry.energyMode) ? entry.energyMode : lowEnergyMode ? "low" : "normal";
       const migratedEntry = {
@@ -310,6 +316,11 @@ function mergeWithDefaults(value: AppState): AppState {
           : "pending",
       } satisfies DailyEntry;
 
+      // Only genuinely legacy entries need a generated schedule backfilled here. An
+      // already-migrated entry keeps whatever timeline it last had (created once, or last
+      // set by an explicit Adapt Plan click) — adaptive planning must not re-derive it on
+      // every read.
+      if (!isLegacyShape) return [date, migratedEntry];
       return [date, arrangeDailyEntry(migratedEntry, timelineMode, energyMode, settings)];
     }),
   );
@@ -359,16 +370,6 @@ export function hydrateAppState(date = getLocalDate()): AppState {
   let state = getAppState();
   state = ensureDailyEntry(state, date);
   state = ensureWeekReview(state, date);
-  const today = state.dailyEntries[date];
-  if (today.timelineMode === "adaptive") {
-    state = {
-      ...state,
-      dailyEntries: {
-        ...state.dailyEntries,
-        [date]: arrangeDailyEntry(today, today.timelineMode, today.energyMode, state.settings, new Date()),
-      },
-    };
-  }
   saveAppState(state);
   return state;
 }
