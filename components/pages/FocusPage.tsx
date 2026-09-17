@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useAppState } from "@/context/app-state-context";
 import { createId } from "@/lib/defaults";
+import { arrangeDailyEntry } from "@/lib/timeline";
 import { Button, Card, CardHeader, Field, Input, SectionHeader, Textarea } from "@/components/ui";
 
 const PHASES = [
@@ -106,12 +107,22 @@ export function FocusPage() {
         ...current.focusSessions,
       ],
     }));
-    updateToday((entry) => ({
-      ...entry,
-      focusObjective: cleanObjective,
-      focusCompleted: true,
-      focusNote: cleanCompleted || entry.focusNote,
-    }));
+    updateToday((entry) => arrangeDailyEntry(
+      {
+        ...entry,
+        focusObjective: cleanObjective,
+        focusStatus: "completed",
+        focusCompleted: true,
+        focusNote: cleanCompleted || entry.focusNote,
+        timeline: entry.timeline.map((block) =>
+          block.kind === "focus" ? { ...block, state: "completed" } : block,
+        ),
+      },
+      entry.timelineMode,
+      entry.energyMode,
+      state.settings,
+      new Date(),
+    ));
     reset();
   };
 
