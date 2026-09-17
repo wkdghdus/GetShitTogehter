@@ -1,8 +1,12 @@
 import { getLocalDate, getWeekStart, getWeekday } from "./dates";
+import { CONTENT_VERSION as LEETCODE_CONTENT_VERSION } from "./curricula/leetcode";
+import { CONTENT_VERSION as SYSTEM_DESIGN_CONTENT_VERSION } from "./curricula/system-design";
 import type {
   AppSettings,
   AppState,
   DailyEntry,
+  LeetcodeCurriculumProgress,
+  SystemDesignCurriculumProgress,
   TimelineItem,
   WeekReview,
   WeeklyPriority,
@@ -177,6 +181,26 @@ export function createDailyEntry(date: string = getLocalDate(), settings: AppSet
   };
 }
 
+export function createSystemDesignCurriculum(): SystemDesignCurriculumProgress {
+  return {
+    trackId: "system-design",
+    contentVersion: SYSTEM_DESIGN_CONTENT_VERSION,
+    currentDay: 1,
+    days: {},
+  };
+}
+
+export function createLeetcodeCurriculum(): LeetcodeCurriculumProgress {
+  return {
+    trackId: "leetcode",
+    contentVersion: LEETCODE_CONTENT_VERSION,
+    currentDay: 1,
+    days: {},
+    problems: {},
+    userProblems: [],
+  };
+}
+
 export function createInitialAppState(now = new Date()): AppState {
   const today = getLocalDate(now);
   const weekStart = getWeekStart(today);
@@ -221,6 +245,8 @@ export function createInitialAppState(now = new Date()): AppState {
     adminInbox: [],
     mentalLoadInbox: [],
     focusSessions: [],
+    systemDesignCurriculum: createSystemDesignCurriculum(),
+    leetcodeCurriculum: createLeetcodeCurriculum(),
   };
 
   state.dailyEntries[today] = createDailyEntry(today, state.settings);
