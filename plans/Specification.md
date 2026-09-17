@@ -1306,7 +1306,7 @@ Open application.
 
 Immediately see:
 
-1. What physical activity am I doing this morning?
+1. What physical activity am I doing today, and when?
 2. What is my one important evening objective?
 3. What does the rest of my day look like?
 4. Have I done enough for today?
@@ -1363,6 +1363,10 @@ The application should help me stop working, not only start working.
 
 Consistency beats intensity.
 
+### Principle 11
+
+Adaptation is better than abandonment. If the normal routine becomes unrealistic for a particular day, switch to an alternate timeline while preserving the day's important priorities.
+
 ---
 
 # 33. Components
@@ -1416,6 +1420,8 @@ type FocusCategory =
 
 interface DailyEntry {
   date: string;
+  timelineMode: "normal" | "late-wake";
+  energyMode: "normal" | "low";
   physicalType: PhysicalType;
   physicalCompleted: boolean;
   workCompleted: boolean;
@@ -1423,7 +1429,6 @@ interface DailyEntry {
   focusObjective: string;
   focusCompleted: boolean;
   focusNote?: string;
-  lowEnergyMode: boolean;
   shutdownDone?: string;
   tomorrowPriority?: string;
 }
@@ -1544,6 +1549,9 @@ The implementation is complete when:
 22. The interface remains simple and uncluttered.
 23. There are no authentication or backend requirements.
 24. There are no obvious TypeScript or console errors.
+25. Today can switch independently between Normal/Late Wake timelines and Normal/Low Energy intensity.
+26. Timeline switching preserves the day's activity choices, completion state, objective, and notes.
+27. Normal and Late Wake timeline presets and the default weekday timeline can be edited in Settings.
 
 ---
 
