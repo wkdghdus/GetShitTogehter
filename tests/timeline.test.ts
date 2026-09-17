@@ -228,3 +228,104 @@ describe("in-place activity edits (no clock-following)", () => {
     assert.deepEqual(otherBlocksAfter, otherBlocksBefore);
   });
 });
+
+describe("adapting after decompression is checked off early", () => {
+  it("ends decompression now and starts the next task immediately, instead of waiting for its full window", () => {
+    const scheduled = arrangeDailyEntry(
+      { ...tuesdayEntry(), workCompleted: true, workStatus: "completed" },
+      "adaptive",
+      "normal",
+      DEFAULT_SETTINGS,
+      at("17:45"),
+    );
+    assert.equal(block(scheduled, "decompression")?.start, "17:45");
+    assert.equal(block(scheduled, "decompression")?.end, "18:15");
+
+    const checkedOff = setActivityState(scheduled, "decompression", "completed");
+    const adapted = arrangeDailyEntry(checkedOff, "adaptive", "normal", DEFAULT_SETTINGS, at("18:00"));
+
+    assert.equal(block(adapted, "decompression")?.end, "18:00");
+    assert.equal(block(adapted, "physical")?.start, "18:00");
+  });
+
+  it("leaves a decompression block untouched once its scheduled window has already elapsed", () => {
+    const scheduled = arrangeDailyEntry(
+      { ...tuesdayEntry(), workCompleted: true, workStatus: "completed" },
+      "adaptive",
+      "normal",
+      DEFAULT_SETTINGS,
+      at("17:45"),
+    );
+    const checkedOff = setActivityState(scheduled, "decompression", "completed");
+    const adapted = arrangeDailyEntry(checkedOff, "adaptive", "normal", DEFAULT_SETTINGS, at("18:20"));
+
+    assert.equal(block(adapted, "decompression")?.end, "18:15");
+    assert.equal(block(adapted, "physical")?.start, "18:20");
+  });
+
+  it("does not truncate a locked decompression block", () => {
+    const scheduled = arrangeDailyEntry(
+      { ...tuesdayEntry(), workCompleted: true, workStatus: "completed" },
+      "adaptive",
+      "normal",
+      DEFAULT_SETTINGS,
+      at("17:45"),
+    );
+    const checkedOff = setActivityState(scheduled, "decompression", "completed");
+    const locked = {
+      ...checkedOff,
+      timeline: checkedOff.timeline.map((item) => (item.kind === "decompression" ? { ...item, locked: true } : item)),
+    };
+    const adapted = arrangeDailyEntry(locked, "adaptive", "normal", DEFAULT_SETTINGS, at("18:00"));
+
+    assert.equal(block(adapted, "decompression")?.end, "18:15");
+    assert.equal(block(adapted, "physical")?.start, "18:15");
+  });
+
+  it("drops a decompression block marked done before it was ever scheduled to start, instead of inverting its range", () => {
+    const scheduled = arrangeDailyEntry(tuesdayEntry(), "adaptive", "normal", DEFAULT_SETTINGS, at("15:00"));
+    assert.equal(block(scheduled, "decompression")?.start, "17:30");
+
+    const checkedOff = setActivityState(scheduled, "decompression", "completed");
+    const adapted = arrangeDailyEntry(checkedOff, "adaptive", "normal", DEFAULT_SETTINGS, at("15:10"));
+
+    assert.equal(block(adapted, "decompression"), undefined);
+    assert.ok(adapted.timeline.every((item) => item.end === undefined || item.end >= item.start));
+  });
+
+  it("never produces a block whose end precedes its start, across a range of adapt times", () => {
+    const scheduled = arrangeDailyEntry(
+      { ...tuesdayEntry(), workCompleted: true, workStatus: "completed" },
+      "adaptive",
+      "normal",
+      DEFAULT_SETTINGS,
+      at("17:45"),
+    );
+    const checkedOff = setActivityState(scheduled, "decompression", "completed");
+
+    for (const time of ["17:00", "17:45", "18:00", "18:14", "18:15", "18:16", "19:00"]) {
+      const adapted = arrangeDailyEntry(checkedOff, "adaptive", "normal", DEFAULT_SETTINGS, at(time));
+      assert.ok(
+        adapted.timeline.every((item) => item.end === undefined || item.end >= item.start),
+        `inverted block at adapt time ${time}: ${JSON.stringify(adapted.timeline.find((item) => item.end !== undefined && item.end < item.start))}`,
+      );
+    }
+  });
+
+  it("is idempotent: pressing Adapt Plan again at the same time does not shift the trimmed decompression block further", () => {
+    const scheduled = arrangeDailyEntry(
+      { ...tuesdayEntry(), workCompleted: true, workStatus: "completed" },
+      "adaptive",
+      "normal",
+      DEFAULT_SETTINGS,
+      at("17:45"),
+    );
+    const checkedOff = setActivityState(scheduled, "decompression", "completed");
+
+    const firstAdapt = arrangeDailyEntry(checkedOff, "adaptive", "normal", DEFAULT_SETTINGS, at("18:00"));
+    const secondAdapt = arrangeDailyEntry(firstAdapt, "adaptive", "normal", DEFAULT_SETTINGS, at("18:00"));
+
+    assert.equal(block(secondAdapt, "decompression")?.end, "18:00");
+    assert.equal(block(secondAdapt, "physical")?.start, "18:00");
+  });
+});

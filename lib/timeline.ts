@@ -106,8 +106,21 @@ function isPreserved(item: TimelineItem, current: number): boolean {
   );
 }
 
+function isDoneDecompression(item: TimelineItem): boolean {
+  return item.kind === "decompression" && !item.locked && !!item.state && isDone(item.state);
+}
+
 function preservedBlocks(entry: DailyEntry, current: number): TimelineItem[] {
-  return entry.timeline.filter((item) => isPreserved(item, current)).map((item) => ({ ...item }));
+  return entry.timeline
+    .filter((item) => isPreserved(item, current))
+    .filter((item) => !isDoneDecompression(item) || parseTime(item.start) < current)
+    .map((item) => {
+      if (isDoneDecompression(item) && endOf(item) > current) {
+        return { ...item, end: formatTime(current) };
+      }
+
+      return { ...item };
+    });
 }
 
 function block(
