@@ -470,7 +470,7 @@ export function TodayPage() {
             {weekend ? "No workday required" : timeRange(workBlock?.start ?? state.settings.workStart, workBlock?.end ?? state.settings.workEnd)}
           </p>
           <p className="mt-1 text-sm text-[color:var(--muted)]">
-            This dashboard is not a work task manager.
+            Only the workday block is tracked here.
           </p>
           <CheckboxRow
             className="mt-5"

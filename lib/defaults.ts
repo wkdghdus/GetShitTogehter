@@ -308,6 +308,7 @@ export function createInitialAppState(now = new Date()): AppState {
     systemDesignEntries: [],
     schoolProjects: [],
     adminInbox: [],
+    workTasks: [],
     mentalLoadInbox: [],
     focusSessions: [],
     systemDesignCurriculum: createSystemDesignCurriculum(),

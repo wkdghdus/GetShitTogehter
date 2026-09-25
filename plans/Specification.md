@@ -161,7 +161,7 @@ Checkbox:
 
 This is deliberately simple.
 
-The application should not become a work task manager.
+The daily Work card should stay a simple yes/no check; detailed work-item tracking lives on the separate Work Board.
 
 ---
 

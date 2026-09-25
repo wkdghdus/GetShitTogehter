@@ -19,17 +19,19 @@ export const primaryRoutes: NavItem[] = [
   { label: "Projects", href: "/projects", token: "PR" },
   { label: "School", href: "/school", token: "SC" },
   { label: "Admin", href: "/admin", token: "AD" },
+  { label: "Work Board", href: "/work", token: "WB" },
   { label: "Life & Recovery", href: "/life-recovery", token: "LR" },
   { label: "Focus", href: "/focus", token: "FO" },
   { label: "Weekly Review", href: "/weekly-review", token: "WR" },
   { label: "Settings", href: "/settings", token: "ST" },
 ];
 
+// Positional indices into primaryRoutes — inserting a route above any of these shifts it.
 const mobileTabs = [
   primaryRoutes[0],
   primaryRoutes[2],
-  primaryRoutes[8],
-  primaryRoutes[10],
+  primaryRoutes[9],
+  primaryRoutes[11],
 ];
 
 function isActivePath(pathname: string, href: string) {

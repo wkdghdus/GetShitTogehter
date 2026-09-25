@@ -21,6 +21,7 @@ const FLAT_ARRAY_FIELDS = [
   "systemDesignEntries",
   "schoolProjects",
   "adminInbox",
+  "workTasks",
   "mentalLoadInbox",
   "focusSessions",
 ] as const;
@@ -268,6 +269,34 @@ describe("storage migration — curriculum fields", () => {
 
   it("keeps version at 1", () => {
     assert.equal(importAppState(blob()).version, 1);
+  });
+
+  // Permanent regression guard: if someone "completes" isAppState() by adding a workTasks
+  // check, this test fails instead of a user silently losing their saved data.
+  it("loads a blob saved before the work board existed", () => {
+    const legacy = legacyState();
+    delete legacy.workTasks;
+    const state = importAppState(JSON.stringify(legacy));
+    assert.deepEqual(state.workTasks, []);
+  });
+
+  it("never returns a non-array workTasks for garbage input", () => {
+    for (const value of FUZZ_VALUES) {
+      const state = importAppState(blob({ workTasks: value }));
+      assert.ok(Array.isArray(state.workTasks), JSON.stringify(value) ?? "undefined");
+    }
+  });
+
+  it("round-trips valid work tasks and drops only malformed siblings", () => {
+    const state = importAppState(blob({ workTasks: [
+      { id: "w1", title: "Kept", category: "Platform", status: "in-progress", detail: "note" },
+      { id: "w2", title: "No category", status: "blocked" },
+      { id: "w3", title: "Bad status", category: "Platform", status: "nope" },
+      null,
+    ] }));
+    assert.deepEqual(state.workTasks, [
+      { id: "w1", title: "Kept", category: "Platform", status: "in-progress", detail: "note" },
+    ]);
   });
 });
 

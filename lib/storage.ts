@@ -15,9 +15,11 @@ import type {
   ProblemAttempt,
   ProblemRating,
   SystemDesignCurriculumProgress,
+  TaskStatus,
   TimelineItem,
   TimelineMode,
   TimelinePreset,
+  WorkTask,
 } from "./types";
 
 export const APP_STATE_STORAGE_KEY = "personal-routine-dashboard:v1";
@@ -73,6 +75,10 @@ function isTimelinePreset(value: unknown): value is TimelinePreset {
     isTimeline(value.blocks);
 }
 
+// workTasks and the curriculum fields are intentionally absent below: every blob saved
+// before they existed lacks them, and a check here would fail validation and make
+// getAppState() overwrite real user data with defaults. They are validated tolerantly
+// in mergeWithDefaults instead.
 function isAppState(value: unknown): value is AppState {
   if (!isRecord(value)) return false;
 
@@ -210,6 +216,24 @@ function mergeUserProblems(raw: unknown, defaults: CurriculumUserProblem[]): Cur
   return problems;
 }
 
+function isTaskStatus(value: unknown): value is TaskStatus {
+  return value === "not-started" || value === "in-progress" || value === "blocked" || value === "complete";
+}
+
+function mergeWorkTasks(raw: unknown, defaults: WorkTask[]): WorkTask[] {
+  if (!Array.isArray(raw)) return defaults;
+  const tasks: WorkTask[] = [];
+  for (const stored of raw) {
+    if (!isRecord(stored)) continue;
+    if (typeof stored.id !== "string" || typeof stored.title !== "string" || typeof stored.category !== "string") continue;
+    if (!isTaskStatus(stored.status)) continue;
+    const task: WorkTask = { id: stored.id, title: stored.title, category: stored.category, status: stored.status };
+    if (typeof stored.detail === "string") task.detail = stored.detail;
+    tasks.push(task);
+  }
+  return tasks;
+}
+
 function mergeTrackBase(
   raw: unknown,
   defaults: CurriculumTrackProgress,
@@ -335,6 +359,7 @@ function mergeWithDefaults(value: AppState): AppState {
     },
     systemDesignCurriculum: mergeSystemDesignCurriculum(value.systemDesignCurriculum, defaults.systemDesignCurriculum),
     leetcodeCurriculum: mergeLeetcodeCurriculum(value.leetcodeCurriculum, defaults.leetcodeCurriculum),
+    workTasks: mergeWorkTasks(value.workTasks, defaults.workTasks),
     updatedAt: value.updatedAt || nowIso(),
   };
 }

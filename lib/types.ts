@@ -261,6 +261,14 @@ export interface AdminTask {
   notes?: string;
 }
 
+export interface WorkTask {
+  id: string;
+  title: string;
+  status: TaskStatus;
+  detail?: string;
+  category: string;
+}
+
 export interface MentalLoadItem {
   id: string;
   text: string;
@@ -376,6 +384,7 @@ export interface AppState {
   systemDesignEntries: SystemDesignEntry[];
   schoolProjects: SchoolProject[];
   adminInbox: AdminTask[];
+  workTasks: WorkTask[];
   mentalLoadInbox: MentalLoadItem[];
   focusSessions: FocusSessionRecord[];
   systemDesignCurriculum: SystemDesignCurriculumProgress;
